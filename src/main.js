@@ -23,6 +23,9 @@ const NATIVE_REDIRECT = `${SCHEME}://auth/callback`;
 let win = null;
 let pending = null;
 
+// Tests only (3D_BACKUP desktop/tools/update-test.mjs): a profile folder of its own, so a test never meets — or
+// blocks — the copy of the app someone has open.
+if (process.env.AEVI_USER_DATA) app.setPath("userData", process.env.AEVI_USER_DATA);
 if (!app.requestSingleInstanceLock()) { app.quit(); }
 else {
   app.on("second-instance", (_e, argv) => {
@@ -81,10 +84,10 @@ function createWindow() {
     width: st.width || 1280, height: st.height || 820, x: st.x, y: st.y, minWidth: 360, minHeight: 500,
     title: "Campus Conveyance", backgroundColor: "#ffffff", show: false, autoHideMenuBar: true,
     icon: path.join(__dirname, "assets", "icon.png"),
-    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: true },
+    webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: true },
   });
   if (st.max) win.maximize();
-  win.once("ready-to-show", () => win.show());
+  win.once("ready-to-show", () => { if (process.env.AEVI_UPDATE_TEST_HIDDEN !== "1") win.show(); });
   win.on("close", saveState);
   win.on("closed", () => { win = null; });
   const wc = win.webContents;
@@ -107,6 +110,7 @@ function createWindow() {
   });
   win.loadURL(`${SITE}/login`, { userAgent: `${wc.getUserAgent().replace(/ Electron\/\S+/, "").replace(/ campus-conveyance-desktop\/\S+/, "")} CampusDesktop/${app.getVersion()}` });
   if (pending) { const l = pending; pending = null; wc.once("did-finish-load", () => handleLink(l)); }
+  wc.on("did-finish-load", () => updater.resend());
 }
 
 function offlinePage(url) {
@@ -138,42 +142,20 @@ function setupMenu() {
     { label: "File", submenu: [{ label: "Print…", accelerator: "CmdOrCtrl+P", click: () => win && win.webContents.print({}) }, { type: "separator" }, isMac ? { role: "close" } : { role: "quit" }] },
     { role: "editMenu" },
     { label: "View", submenu: [{ role: "reload" }, { type: "separator" }, { role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" }, { type: "separator" }, { role: "togglefullscreen" }] },
-    { label: "Help", submenu: [{ label: "Check for updates", click: () => checkForUpdates(true) }, { label: "Campus Conveyance website", click: () => shell.openExternal("https://campusconveyance.aevinite.com") }] },
+    { label: "Help", submenu: [(updater.ready ? { label: `Restart to update (${updater.version})`, click: () => updater.install() } : { label: "Check for updates", click: () => updater.check(true) }), { label: "Campus Conveyance website", click: () => shell.openExternal("https://campusconveyance.aevinite.com") }] },
   ]));
 }
 
-const newer = (a, b) => {
-  const x = String(a).split(".").map(Number), y = String(b).split(".").map(Number);
-  for (let i = 0; i < 3; i++) { if ((x[i] || 0) > (y[i] || 0)) return true; if ((x[i] || 0) < (y[i] || 0)) return false; }
-  return false;
-};
-const selfUpdating = () => !process.windowsStore && (process.platform === "win32" || (process.platform === "linux" && !!process.env.APPIMAGE));
-async function checkForUpdates(byHand) {
-  if (!app.isPackaged) { if (byHand) dialog.showMessageBox(win, { message: "Updates are checked only in the installed app." }); return; }
-  if (process.windowsStore) { if (byHand) dialog.showMessageBox(win, { message: "The Microsoft Store keeps the app up to date by itself." }); return; }
-  if (selfUpdating()) {
-    try {
-      const { autoUpdater } = require("electron-updater");
-      autoUpdater.once("update-downloaded", async (info) => {
-        const r = await dialog.showMessageBox(win, { type: "info", buttons: ["Restart now", "Later"], defaultId: 0, message: `Campus Conveyance ${info.version} is ready.`, detail: "Restart to finish updating." });
-        if (r.response === 0) autoUpdater.quitAndInstall();
-      });
-      const res = await autoUpdater.checkForUpdates();
-      if (byHand && (!res || !res.isUpdateAvailable)) dialog.showMessageBox(win, { message: "Campus Conveyance is up to date." });
-    } catch { if (byHand) dialog.showMessageBox(win, { message: "Couldn't check for updates. Check the internet and try again." }); }
-    return;
-  }
-  try {
-    const j = await (await fetch(`${SITE}/app/latest.json`, { cache: "no-store" })).json();
-    const plat = process.platform === "darwin" ? j.mac : j.linux;
-    if (plat && plat.version && newer(plat.version, app.getVersion())) {
-      const link = process.platform === "darwin" ? (process.arch === "arm64" ? plat.dmg : plat.dmgIntel || plat.dmg) : plat.deb || plat.appimage;
-      const res = await dialog.showMessageBox(win, { type: "info", buttons: ["Update now", "Later"], defaultId: 0, message: `Campus Conveyance ${plat.version} is out.`,
-        detail: process.platform === "darwin" ? "Update now downloads it. Open the file and drag the app into Applications, replacing the old one." : "Update now downloads the new version." });
-      if (res.response === 0 && link) shell.openExternal(link);
-    } else if (byHand) dialog.showMessageBox(win, { message: "Campus Conveyance is up to date." });
-  } catch { if (byHand) dialog.showMessageBox(win, { message: "Couldn't check for updates. Check the internet and try again." }); }
-}
+// ── updates inside the app (updater.js — the same file as Aevidine's desktop app) ──────────────────────────────────
+// OBITUARY (2026-11-13): the Mac "Update now" used to open the new .dmg for the person to drag into Applications, and
+// Windows asked with a pop-up. One in-window bar now does it everywhere (owner: "updates inside the app, like VS Code").
+const updater = require("./updater")({
+  getWindow: () => win,
+  repo: "aevinite/campus-apps",
+  appName: "Campus Conveyance",
+  downloadPage: "https://campusconveyance.aevinite.com/download/",
+});
+updater.onMenu(() => setupMenu());
 
 app.whenReady().then(() => {
   setupDownloads();
@@ -181,8 +163,8 @@ app.whenReady().then(() => {
   createWindow();
   const link = process.argv.find((a) => a.startsWith(`${SCHEME}://`));
   if (link) handleLink(link);
-  setTimeout(() => checkForUpdates(false), 20_000);
-  setInterval(() => checkForUpdates(false), 6 * 3600 * 1000);
+  setTimeout(() => updater.check(false), process.env.AEVI_UPDATE_FEED ? 3_000 : 20_000);
+  setInterval(() => updater.check(false), 6 * 3600 * 1000);
   app.on("activate", () => { if (!win) createWindow(); });
 });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
