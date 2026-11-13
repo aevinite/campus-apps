@@ -1,0 +1,107 @@
+# Windows + Linux installers, built and TESTED on GitHub's own machines (owner, 2026-11-13).
+#
+# SOURCE OF TRUTH: 3D_BACKUP desktop/tools/cloud-build.yml. desktop/tools/release.mjs copies it to the public binaries
+# repo (aevinite/aevidine-apps, aevinite/campus-apps) as .github/workflows/build.yml whenever it differs, pushes the
+# desktop app's source to the `shell` branch there, and starts this run for one release tag. Public repos run GitHub's
+# machines for free, so the Mac needs no Rosetta and no Windows PC is involved.
+#
+# Each platform: install the packages, build, INSTALL/OPEN the app and check it reaches its site's page (a broken build
+# never reaches the release), then upload the files to that release. Unsigned: Windows SmartScreen / Smart App Control
+# may warn — the Microsoft Store copy (docs/MICROSOFT-STORE.md) is the signed route.
+name: Build Windows and Linux
+run-name: "${{ inputs.tag }} · Windows + Linux"
+on:
+  workflow_dispatch:
+    inputs:
+      tag: { description: "Release tag to add the installers to (e.g. v1.0.455164)", required: true }
+      ref: { description: "Commit on the shell branch that holds this release's app source", required: true }
+      site: { description: "The site the app opens (the test checks the app reaches it)", required: true }
+permissions:
+  contents: write
+concurrency:
+  group: build-${{ inputs.tag }}
+  cancel-in-progress: false
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      TAG: ${{ inputs.tag }}
+      SITE: ${{ inputs.site }}
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: "${{ inputs.ref }}" }
+
+      - name: Install the app's packages
+        working-directory: src
+        run: npm ci --no-audit --no-fund
+
+      - name: Build
+        working-directory: src
+        shell: bash
+        run: |
+          V="${TAG#v}"
+          if [ "$RUNNER_OS" = "Windows" ]; then P=--win; else P=--linux; fi
+          npx electron-builder $P --publish never "-c.extraMetadata.version=$V"
+          ls -la dist
+
+      - name: Test — install and open the Windows app
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem src/dist -Filter *Setup*.exe | Select-Object -First 1
+          Start-Process $exe.FullName -ArgumentList '/S' -Wait
+          $pn = (Get-Content src/package.json -Raw | ConvertFrom-Json).productName
+          $app = Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Filter "$pn.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $app) { throw "The installer did not install the app." }
+          "Installed: $($app.FullName)"
+          $p = Start-Process $app.FullName -ArgumentList '--remote-debugging-port=9333' -PassThru
+          $origin = ([Uri]$env:SITE).GetLeftPart('Authority')
+          $ok = $false
+          for ($i = 0; $i -lt 45 -and -not $ok; $i++) {
+            Start-Sleep 2
+            try { $pages = Invoke-RestMethod http://127.0.0.1:9333/json -TimeoutSec 3 } catch { continue }
+            $page = $pages | Where-Object { $_.type -eq 'page' } | Select-Object -First 1
+            if ($page) { "Open page: $($page.url) — $($page.title)"; $ok = $page.url.StartsWith($origin) }
+          }
+          Get-Process | Where-Object { $_.Path -eq $app.FullName } | Stop-Process -Force -ErrorAction SilentlyContinue
+          if (-not $ok) { throw "The app did not reach $origin." }
+          "OK: the Windows app installs, opens and reaches its site."
+
+      - name: Test — open the Linux app
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb >/dev/null
+          AI=$(ls src/dist/*.AppImage | head -1); chmod +x "$AI"
+          ORIGIN=$(node -e 'console.log(new URL(process.env.SITE).origin)')
+          xvfb-run -a "$AI" --appimage-extract-and-run --no-sandbox --remote-debugging-port=9333 >/tmp/app.log 2>&1 &
+          OK=0
+          for i in $(seq 1 45); do
+            sleep 2
+            # Not answering yet (still starting) is normal — keep asking (|| true: one refused connection must not end the test).
+            URL=$(curl -s -m 3 http://127.0.0.1:9333/json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const p=JSON.parse(s).find(x=>x.type==="page");console.log(p?p.url:"")}catch{console.log("")}})') || true
+            [ -n "$URL" ] && echo "Open page: $URL"
+            case "$URL" in "$ORIGIN"*) OK=1; break;; esac
+          done
+          pkill -f "$(basename "$AI")" || true
+          [ "$OK" = 1 ] || { tail -20 /tmp/app.log; echo "The app did not reach $ORIGIN."; exit 1; }
+          echo "OK: the Linux app opens and reaches its site."
+
+      - name: Add the installers to the release
+        shell: bash
+        run: |
+          # Only the files this platform made (Windows has no latest-linux.yml and the other way round).
+          FILES=()
+          for f in src/dist/*.exe src/dist/*.exe.blockmap src/dist/*.AppImage src/dist/*.deb src/dist/latest.yml src/dist/latest-linux.yml; do
+            [ -f "$f" ] && FILES+=("$f")
+          done
+          [ ${#FILES[@]} -gt 0 ] || { echo "Nothing was built."; exit 1; }
+          gh release upload "$TAG" "${FILES[@]}" --clobber -R "$GITHUB_REPOSITORY"
+          printf '%s\n' "${FILES[@]##*/}"
