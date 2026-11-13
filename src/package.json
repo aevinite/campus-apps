@@ -1,0 +1,32 @@
+{
+  "name": "campus-conveyance-desktop",
+  "productName": "Campus Conveyance",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Campus Conveyance for Windows, Mac and Linux — a window around the live site (owner, 2026-11-13; the Aevidine desktop pattern).",
+  "author": "Aevinite <support@aevinite.com>",
+  "homepage": "https://campusconveyance.aevinite.com",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:mac": "electron-builder --mac --publish never",
+    "dist:linux": "electron-builder --linux --publish never",
+    "dist:win": "electron-builder --win --publish never"
+  },
+  "dependencies": { "electron-updater": "6.8.11" },
+  "devDependencies": { "electron": "44.10.0", "electron-builder": "26.18.0" },
+  "build": {
+    "appId": "com.aevinite.campusconveyance.desktop",
+    "productName": "Campus Conveyance",
+    "copyright": "© Aevinite",
+    "directories": { "output": "dist", "buildResources": "assets" },
+    "files": ["main.js", "package.json", "assets/icon.png"],
+    "protocols": [{ "name": "Campus Conveyance sign-in", "schemes": ["campusconveyance"] }],
+    "publish": [{ "provider": "github", "owner": "aevinite", "repo": "campus-apps", "releaseType": "release" }],
+    "mac": { "category": "public.app-category.travel", "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }], "identity": null, "artifactName": "CampusConveyance-${version}-${arch}.${ext}" },
+    "dmg": { "title": "Campus Conveyance" },
+    "win": { "target": [{ "target": "nsis", "arch": ["x64"] }], "artifactName": "CampusConveyance-Setup-${version}.${ext}" },
+    "nsis": { "oneClick": true, "perMachine": false, "deleteAppDataOnUninstall": false },
+    "linux": { "target": [{ "target": "AppImage", "arch": ["x64"] }, { "target": "deb", "arch": ["x64"] }], "category": "Office", "maintainer": "Aevinite <support@aevinite.com>", "artifactName": "CampusConveyance-${version}-${arch}.${ext}" }
+  }
+}
