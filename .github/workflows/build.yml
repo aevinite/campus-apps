@@ -75,6 +75,68 @@ jobs:
           if (-not $ok) { throw "The app did not reach $origin." }
           "OK: the Windows app installs, opens and reaches its site."
 
+      # THE IN-APP UPDATE, proved before anything is published (owner, 2026-11-13: "updates inside the app; this type of
+      # error should not happen when I publish"). Builds the same app once more as the next version, serves it on this
+      # machine, and lets the version just installed above update ITSELF (updater.js test switches: own profile,
+      # hidden window, no click, no reopening). Passes only when the installed app's version is the next one.
+      - name: Test — the Windows app updates itself
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $v = $env:TAG.TrimStart('v'); $p = $v.Split('.'); $next = "$($p[0]).$($p[1]).$([int]$p[2] + 1)"
+          Push-Location src
+          npx electron-builder --win nsis --publish never "-c.extraMetadata.version=$next" "-c.directories.output=../dist-next"
+          Pop-Location
+          if (-not (Test-Path dist-next/latest.yml)) { throw "The next version has no latest.yml." }
+          $srv = Start-Process python -ArgumentList '-m','http.server','9480','--bind','127.0.0.1','--directory','dist-next' -PassThru -WindowStyle Hidden
+          Start-Sleep 2
+          $pn = (Get-Content src/package.json -Raw | ConvertFrom-Json).build.productName
+          $app = Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Filter "$pn.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $app) { throw "The installed app is gone." }
+          # The real installed version: Windows' list of installed apps. (The .exe's own "file version" can't hold a part
+          # above 65535, so 1.0.456143 shows there as 1.0.65535.0 — useless for this check.)
+          function Installed-Version { (Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "$pn*" } | Select-Object -First 1).DisplayVersion }
+          $before = Installed-Version
+          "Before: $before"
+          if ($before -ne $v) { throw "Installed version is $before, expected $v." }
+          $env:AEVI_UPDATE_FEED = "http://127.0.0.1:9480"; $env:AEVI_UPDATE_AUTO = "1"; $env:AEVI_UPDATE_NO_RELAUNCH = "1"
+          $env:AEVI_UPDATE_TEST_HIDDEN = "1"; $env:AEVI_USER_DATA = "$env:RUNNER_TEMP\aevi-update-profile"
+          Start-Process $app.FullName
+          $ok = $false
+          for ($i = 0; $i -lt 90 -and -not $ok; $i++) {
+            Start-Sleep 2
+            $ver = Installed-Version
+            if ($ver -eq $next) { $ok = $true }
+          }
+          Get-Process | Where-Object { $_.Path -eq $app.FullName } | Stop-Process -Force -ErrorAction SilentlyContinue
+          Stop-Process -Id $srv.Id -Force -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force dist-next -ErrorAction SilentlyContinue
+          if (-not $ok) { throw "The app did not update itself to $next (it says $ver)." }
+          "OK: the Windows app $v updated itself to $next inside the app."
+
+      - name: Test — the Linux app updates itself
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          V="${TAG#v}"; NEXT="${V%.*}.$(( ${V##*.} + 1 ))"
+          (cd src && npx electron-builder --linux AppImage --publish never "-c.extraMetadata.version=$NEXT" "-c.directories.output=../dist-next")
+          test -f dist-next/latest-linux.yml || { echo "The next version has no latest-linux.yml."; exit 1; }
+          python3 -m http.server 9480 --bind 127.0.0.1 --directory dist-next >/dev/null 2>&1 &
+          SRV=$!; sleep 2
+          WORK="$RUNNER_TEMP/aevi-update"; mkdir -p "$WORK"
+          cp "$(ls src/dist/*.AppImage | head -1)" "$WORK/app.AppImage"; chmod +x "$WORK/app.AppImage"
+          NEW_SUM=$(sha256sum "$(ls dist-next/*.AppImage | head -1)" | cut -d' ' -f1)
+          AEVI_UPDATE_FEED=http://127.0.0.1:9480 AEVI_UPDATE_AUTO=1 AEVI_UPDATE_NO_RELAUNCH=1 AEVI_UPDATE_TEST_HIDDEN=1 \
+            AEVI_USER_DATA="$WORK/profile" xvfb-run -a "$WORK/app.AppImage" --appimage-extract-and-run --no-sandbox >"$WORK/log.txt" 2>&1 &
+          OK=0
+          for i in $(seq 1 90); do
+            sleep 2
+            [ "$(sha256sum "$WORK/app.AppImage" 2>/dev/null | cut -d' ' -f1)" = "$NEW_SUM" ] && { OK=1; break; }
+          done
+          pkill -f "app.AppImage" || true; kill $SRV || true; rm -rf dist-next
+          [ "$OK" = 1 ] || { tail -30 "$WORK/log.txt"; echo "The AppImage did not update itself to $NEXT."; exit 1; }
+          echo "OK: the Linux app $V updated itself to $NEXT inside the app."
+
       # THE MICROSOFT STORE PACKAGE (docs/MICROSOFT-STORE.md) — only for an app whose package.json has a `build.appx`
       # section (the identity Partner Center gave its reserved name). Unsigned on purpose: the Store signs it, which is why
       # a Store install passes Smart App Control. The Store refuses any version part above 65535, so version 1.0.N is
