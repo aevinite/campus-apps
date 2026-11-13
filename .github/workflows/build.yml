@@ -7,7 +7,8 @@
 #
 # Each platform: install the packages, build, INSTALL/OPEN the app and check it reaches its site's page (a broken build
 # never reaches the release), then upload the files to that release. Unsigned: Windows SmartScreen / Smart App Control
-# may warn — the Microsoft Store copy (docs/MICROSOFT-STORE.md) is the signed route.
+# may warn — the Microsoft Store copy (docs/MICROSOFT-STORE.md) is the signed route: the Windows run also makes that
+# Store package (.appx) for every app that has a Store identity, and adds it to the same release.
 name: Build Windows and Linux
 run-name: "${{ inputs.tag }} · Windows + Linux"
 on:
@@ -74,6 +75,32 @@ jobs:
           if (-not $ok) { throw "The app did not reach $origin." }
           "OK: the Windows app installs, opens and reaches its site."
 
+      # THE MICROSOFT STORE PACKAGE (docs/MICROSOFT-STORE.md) — only for an app whose package.json has a `build.appx`
+      # section (the identity Partner Center gave its reserved name). Unsigned on purpose: the Store signs it, which is why
+      # a Store install passes Smart App Control. The Store refuses any version part above 65535, so version 1.0.N is
+      # packaged as 1.<N div 10000>.<N mod 10000>(.0) — the same number N, still rising with every release.
+      - name: Build the Microsoft Store package
+        if: runner.os == 'Windows'
+        working-directory: src
+        shell: bash
+        run: |
+          HAS=$(node -p 'Boolean(require("./package.json").build.appx)')
+          if [ "$HAS" != "true" ]; then echo "No Store identity for this app — no Store package."; exit 0; fi
+          N="${TAG##*.}"
+          SV="1.$((10#$N / 10000)).$((10#$N % 10000))"
+          echo "Store package version: $SV.0 (version $TAG)"
+          npx electron-builder --win appx --publish never "-c.extraMetadata.version=$SV"
+          A=$(ls dist/*.appx | head -1)
+          # Check what Partner Center will check: the reserved identity, the version, and the sign-in address.
+          unzip -p "$A" AppxManifest.xml > /tmp/manifest.xml
+          ID=$(node -p 'require("./package.json").build.appx.identityName')
+          grep -q "Name=\"$ID\"" /tmp/manifest.xml || { echo "Store package: wrong identity"; exit 1; }
+          grep -q "Version=\"$SV.0\"" /tmp/manifest.xml || { echo "Store package: wrong version"; exit 1; }
+          for SCHEME in $(node -p '(require("./package.json").build.protocols||[]).flatMap(p=>p.schemes).join(" ")'); do
+            grep -q "Protocol Name=\"$SCHEME\"" /tmp/manifest.xml || { echo "Store package: sign-in address $SCHEME missing"; exit 1; }
+          done
+          echo "OK: $(basename "$A") — identity $ID, version $SV.0, sign-in address registered."
+
       - name: Test — open the Linux app
         if: runner.os == 'Linux'
         shell: bash
@@ -99,7 +126,7 @@ jobs:
         run: |
           # Only the files this platform made (Windows has no latest-linux.yml and the other way round).
           FILES=()
-          for f in src/dist/*.exe src/dist/*.exe.blockmap src/dist/*.AppImage src/dist/*.deb src/dist/latest.yml src/dist/latest-linux.yml; do
+          for f in src/dist/*.exe src/dist/*.exe.blockmap src/dist/*.appx src/dist/*.AppImage src/dist/*.deb src/dist/latest.yml src/dist/latest-linux.yml; do
             [ -f "$f" ] && FILES+=("$f")
           done
           [ ${#FILES[@]} -gt 0 ] || { echo "Nothing was built."; exit 1; }
