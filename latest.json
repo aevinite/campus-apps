@@ -1,21 +1,21 @@
 {
   "product": "campus",
-  "desktopShell": "b9386a6c9d",
+  "desktopShell": "f76910e7da",
   "mac": {
-    "version": "1.0.456122",
-    "dmg": "https://github.com/aevinite/campus-apps/releases/download/v1.0.456122/CampusConveyance-1.0.456122-arm64.dmg",
-    "dmgIntel": "https://github.com/aevinite/campus-apps/releases/download/v1.0.456122/CampusConveyance-1.0.456122-x64.dmg"
+    "version": "1.0.456215",
+    "dmg": "https://github.com/aevinite/campus-apps/releases/download/v1.0.456215/CampusConveyance-1.0.456215-arm64.dmg",
+    "dmgIntel": "https://github.com/aevinite/campus-apps/releases/download/v1.0.456215/CampusConveyance-1.0.456215-x64.dmg"
   },
-  "updated": "2026-11-13T18:07:45.687Z",
+  "updated": "2026-11-13T19:48:22.100Z",
   "windows": {
-    "version": "1.0.456122",
-    "exe": "https://github.com/aevinite/campus-apps/releases/download/v1.0.456122/CampusConveyance-Setup-1.0.456122.exe",
+    "version": "1.0.456215",
+    "exe": "https://github.com/aevinite/campus-apps/releases/download/v1.0.456215/CampusConveyance-Setup-1.0.456215.exe",
     "store": "ms-windows-store://pdp/?productid=9MT0SFK8T86M",
     "storeWeb": "https://apps.microsoft.com/detail/9MT0SFK8T86M"
   },
   "linux": {
-    "version": "1.0.456122",
-    "appimage": "https://github.com/aevinite/campus-apps/releases/download/v1.0.456122/CampusConveyance-1.0.456122-x86_64.AppImage",
-    "deb": "https://github.com/aevinite/campus-apps/releases/download/v1.0.456122/CampusConveyance-1.0.456122-amd64.deb"
+    "version": "1.0.456215",
+    "appimage": "https://github.com/aevinite/campus-apps/releases/download/v1.0.456215/CampusConveyance-1.0.456215-x86_64.AppImage",
+    "deb": "https://github.com/aevinite/campus-apps/releases/download/v1.0.456215/CampusConveyance-1.0.456215-amd64.deb"
   }
 }
