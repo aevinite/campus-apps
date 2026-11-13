@@ -6,5 +6,14 @@
     "dmg": "https://github.com/aevinite/campus-apps/releases/download/v1.0.455287/CampusConveyance-1.0.455287-arm64.dmg",
     "dmgIntel": "https://github.com/aevinite/campus-apps/releases/download/v1.0.455287/CampusConveyance-1.0.455287-x64.dmg"
   },
-  "updated": "2026-11-13T05:40:29.092Z"
+  "updated": "2026-11-13T06:36:49.531Z",
+  "windows": {
+    "version": "1.0.455287",
+    "exe": "https://github.com/aevinite/campus-apps/releases/download/v1.0.455287/CampusConveyance-Setup-1.0.455287.exe"
+  },
+  "linux": {
+    "version": "1.0.455287",
+    "appimage": "https://github.com/aevinite/campus-apps/releases/download/v1.0.455287/CampusConveyance-1.0.455287-x86_64.AppImage",
+    "deb": "https://github.com/aevinite/campus-apps/releases/download/v1.0.455287/CampusConveyance-1.0.455287-amd64.deb"
+  }
 }
