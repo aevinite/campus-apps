@@ -1,0 +1,10 @@
+{
+  "product": "campus",
+  "desktopShell": "27a67583c6",
+  "mac": {
+    "version": "1.0.455287",
+    "dmg": "https://github.com/aevinite/campus-apps/releases/download/v1.0.455287/CampusConveyance-1.0.455287-arm64.dmg",
+    "dmgIntel": "https://github.com/aevinite/campus-apps/releases/download/v1.0.455287/CampusConveyance-1.0.455287-x64.dmg"
+  },
+  "updated": "2026-11-13T05:40:29.092Z"
+}
